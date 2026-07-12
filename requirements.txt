@@ -1,0 +1,6 @@
+streamlit>=1.33
+pandas>=2.0
+flask>=3.0
+qrcode[pil]>=7.4
+psycopg2-binary>=2.9
+ 
