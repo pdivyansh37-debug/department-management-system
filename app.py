@@ -2,23 +2,22 @@
 app.py
 ------
 Streamlit frontend for the Corporate Department Management System.
- 
+
 Run with:
     streamlit run app.py
- 
+
 Mock login accounts (seeded automatically on first run):
     welding_head / welding123   -> Welding Dept
     y_head       / yhead123     -> Department Y
 """
- 
+
 import io
-import json
 from datetime import date
- 
+
 import pandas as pd
 import qrcode
 import streamlit as st
- 
+
 from database import (
     add_employee,
     approve_pending_employee,
@@ -36,11 +35,11 @@ from database import (
     update_employee_status,
 )
 from theme import apply_theme, eyebrow, render_kpi_cards
- 
+
 st.set_page_config(page_title="Department Management System", page_icon="🏭", layout="wide")
 apply_theme()
 init_db()  # safe to call every run -- uses CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE
- 
+
 # ---------------------------------------------------------------------------
 # SESSION STATE
 # ---------------------------------------------------------------------------
@@ -49,15 +48,15 @@ if "logged_in" not in st.session_state:
     st.session_state.username = None
     st.session_state.dept_id = None    # <- this is what "remembers" the head's department
     st.session_state.dept_name = None
- 
- 
+
+
 def logout():
     st.session_state.logged_in = False
     st.session_state.username = None
     st.session_state.dept_id = None
     st.session_state.dept_name = None
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # PUBLIC SUBMISSION PAGE  (no login -- reached via ?page=submit)
 # ---------------------------------------------------------------------------
@@ -65,9 +64,10 @@ def public_submission_page():
     """
     A no-login page any employee can open via a shared link or QR code.
     Submissions go through the exact same handle_webhook_employee() logic
-    as the Data Import Simulator -- they land in the pending-approval queue,
-    never straight into the live employees table. This function is only
-    reached because main() checks st.query_params BEFORE the login gate.
+    used by the Flask webhook endpoint (api_server.py) -- they land in the
+    pending-approval queue, never straight into the live employees table.
+    This function is only reached because main() checks st.query_params
+    BEFORE the login gate.
     """
     st.title("🏭 Employee Data Submission")
     st.caption(
@@ -75,9 +75,9 @@ def public_submission_page():
         "approve this before it becomes part of the official records — you "
         "don't need an account to submit."
     )
- 
+
     dept_names = [d["dept_name"] for d in get_all_departments()]
- 
+
     with st.form("public_submit_form", clear_on_submit=True):
         emp_name = st.text_input("Full Name*")
         emp_no = st.text_input("Employee No.*", placeholder="e.g. E1001")
@@ -86,7 +86,7 @@ def public_submission_page():
         working_area = st.text_input("Working Area*")
         joining_date = st.date_input("Joining Date*", value=date.today())
         submitted = st.form_submit_button("Submit for Approval")
- 
+
     if submitted:
         if not all([emp_name, emp_no, phone_number, working_area]):
             st.error("Please fill in all required fields.")
@@ -106,8 +106,8 @@ def public_submission_page():
                 st.success("Submitted! Your department head has been notified for approval.")
             else:
                 st.error(message)
- 
- 
+
+
 def generate_qr_code(data: str) -> io.BytesIO:
     """Renders `data` (a URL) as a PNG QR code in memory for st.image()."""
     qr = qrcode.QRCode(box_size=8, border=2)
@@ -118,8 +118,8 @@ def generate_qr_code(data: str) -> io.BytesIO:
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf
- 
- 
+
+
 def share_link_page():
     st.header("🔗 Employee Submission Link")
     st.caption(
@@ -127,7 +127,7 @@ def share_link_page():
         "own details for you to review — nothing they submit goes live "
         "until you approve it in Pending Approvals."
     )
- 
+
     base_url = st.text_input(
         "Your app's URL",
         value="http://localhost:8501",
@@ -140,13 +140,13 @@ def share_link_page():
         ),
     )
     submission_url = f"{base_url.rstrip('/')}/?page=submit"
- 
+
     st.code(submission_url, language="text")
- 
+
     qr_buf = generate_qr_code(submission_url)
     st.image(qr_buf, caption="Scan to submit employee data", width=220)
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # LOGIN PAGE
 # ---------------------------------------------------------------------------
@@ -154,12 +154,12 @@ def login_page():
     st.title("🏭 Department Management System")
     eyebrow("Restricted Access · Department Heads Only")
     st.subheader("Department Head Login")
- 
+
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Log In")
- 
+
     if submitted:
         # authenticate_user() checks username + hashed password together in
         # one SQL WHERE clause -- see database.py for the query.
@@ -172,14 +172,8 @@ def login_page():
             st.rerun()
         else:
             st.error("Invalid username or password.")
- 
-    with st.expander("ℹ️ Mock test accounts"):
-        st.code(
-            "x_head       / welding123   (Welding Dept)\n"
-            "y_head       / yhead123     (Department Y)"
-        )
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # ADD / UPDATE EMPLOYEE PAGE  (write access -- restricted to the head's own dept)
 # ---------------------------------------------------------------------------
@@ -190,9 +184,9 @@ def add_employee_page():
         f"ever touch **{st.session_state.dept_name}**. There is no field "
         f"anywhere on this page to target a different department."
     )
- 
+
     tab_add, tab_update = st.tabs(["➕ Add New Employee", "🔄 Update Employee Status"])
- 
+
     # -----------------------------------------------------------------
     # TAB 1: Add a brand-new employee (unchanged from before)
     # -----------------------------------------------------------------
@@ -202,7 +196,7 @@ def add_employee_page():
         # live as soon as the radio changes -- so it has to be a normal
         # (non-form) widget.
         status = st.radio("Status", ["Working", "Not Working"], horizontal=True, key="add_status")
- 
+
         leaving_date = None
         with st.form("add_employee_form", clear_on_submit=True):
             emp_no = st.text_input("Employee No.*", placeholder="e.g. E1001")
@@ -210,7 +204,7 @@ def add_employee_page():
             phone_number = st.text_input("Phone Number*")
             working_area = st.text_input("Working Area*")
             joining_date = st.date_input("Joining Date*", value=date.today())
- 
+
             # CONDITIONAL LOGIC: leaving_date is locked/hidden while
             # status == 'Working', and becomes an active, required input
             # the moment status is switched to 'Not Working'.
@@ -218,9 +212,9 @@ def add_employee_page():
                 leaving_date = st.date_input("Leaving Date*", value=date.today(), key="add_leaving_date")
             else:
                 st.text_input("Leaving Date", value="🔒 locked while status = Working", disabled=True)
- 
+
             submitted = st.form_submit_button("Add Employee")
- 
+
         if submitted:
             if not all([emp_no, emp_name, phone_number, working_area]):
                 st.error("Please fill in all required fields.")
@@ -243,7 +237,7 @@ def add_employee_page():
                     dept_id=st.session_state.dept_id,  # <-- enforced here
                 )
                 (st.success if success else st.error)(message)
- 
+
     # -----------------------------------------------------------------
     # TAB 2: Move an EXISTING employee between Working / Not Working --
     # this is the piece that was missing: someone was added as Working,
@@ -255,12 +249,12 @@ def add_employee_page():
             "Pick one of your department's employees and change their status — "
             "e.g. mark them 'Not Working' the day they actually leave."
         )
- 
+
         # Scoped to the head's OWN department only -- same principle as the
         # Add tab, just enforced via get_department_employees(dept_id)
         # instead of a hidden form field.
         dept_employees = get_department_employees(st.session_state.dept_id)
- 
+
         if not dept_employees:
             st.warning("No employees in your department yet — add one in the first tab.")
         else:
@@ -270,11 +264,11 @@ def add_employee_page():
             }
             selected_label = st.selectbox("Select Employee", list(options.keys()), key="update_emp_select")
             selected_emp_no = options[selected_label]
- 
+
             new_status = st.radio(
                 "New Status", ["Working", "Not Working"], horizontal=True, key="update_status_radio"
             )
- 
+
             new_leaving_date = None
             if new_status == "Not Working":
                 new_leaving_date = st.date_input(
@@ -282,7 +276,7 @@ def add_employee_page():
                 )
             else:
                 st.caption("Leaving date will be cleared since status is being set back to Working.")
- 
+
             if st.button("Update Status", key="update_status_btn"):
                 if new_status == "Not Working" and new_leaving_date is None:
                     st.error("Leaving date is required when status is 'Not Working'.")
@@ -296,8 +290,8 @@ def add_employee_page():
                     (st.success if success else st.error)(message)
                     if success:
                         st.rerun()  # refresh the dropdown's "currently X" labels
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # DASHBOARD PAGE  (read access -- global, any head can view any department)
 # ---------------------------------------------------------------------------
@@ -308,20 +302,20 @@ def dashboard_page():
         "departments here — e.g. pull a master list of every 'Not Working' "
         "employee company-wide to find contact info and working area for recruiting."
     )
- 
+
     # Quick readout of overall headcount before diving into filters/search.
     render_kpi_cards(get_summary_stats())
- 
+
     departments = get_all_departments()
     dept_options = {"All Departments": None}
     dept_options.update({d["dept_name"]: d["dept_id"] for d in departments})
- 
+
     col1, col2 = st.columns(2)
     with col1:
         dept_choice = st.selectbox("Filter by Department", list(dept_options.keys()))
     with col2:
         status_choice = st.selectbox("Filter by Status", ["All", "Working", "Not Working"])
- 
+
     # get_employees() applies NO dept_id restriction based on the logged-in
     # user's own department -- read access is intentionally global. The only
     # filtering is whatever this head picked in the dropdowns above.
@@ -329,27 +323,27 @@ def dashboard_page():
         dept_id=dept_options[dept_choice],
         status=None if status_choice == "All" else status_choice,
     )
- 
+
     df = pd.DataFrame(rows)
     if df.empty:
         st.warning("No employees match these filters.")
         return
- 
+
     df = df.rename(columns={
         "emp_no": "Emp No", "emp_name": "Name", "phone_number": "Phone",
         "working_area": "Working Area", "status": "Status",
         "joining_date": "Joined", "leaving_date": "Left", "dept_name": "Department",
     })
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
     st.caption(f"{len(df)} employee(s) found.")
- 
+
     if status_choice == "Not Working":
         st.info(
             "💡 This is your cross-department pool of ex-employees — "
             "phone number and last working area are shown above for easy recruiting."
         )
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # FIND EMPLOYEE PAGE  (global search + sort -- any head, any department)
 # ---------------------------------------------------------------------------
@@ -360,7 +354,7 @@ def find_employee_page():
         "specific employee — by name, employee no., phone, working area, "
         "or department."
     )
- 
+
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         search_term = st.text_input(
@@ -371,7 +365,7 @@ def find_employee_page():
         sort_by = st.selectbox("Sort by", ["Name", "Employee No", "Department", "Status", "Joining Date"])
     with col3:
         sort_order = st.selectbox("Order", ["Ascending", "Descending"])
- 
+
     # No dept_id restriction here either -- same global-read principle as
     # the Dashboard, just with free-text search instead of dropdown filters.
     results = search_employees(
@@ -379,11 +373,11 @@ def find_employee_page():
         sort_by=sort_by,
         sort_order=sort_order,
     )
- 
+
     if not results:
         st.warning("No matching employees found.")
         return
- 
+
     # If the search narrows it down to exactly one person, show a quick
     # detail card up top -- this is the "get a particular employee" case.
     if len(results) == 1:
@@ -400,16 +394,16 @@ def find_employee_page():
         if emp["leaving_date"]:
             st.write(f"**Left:** {emp['leaving_date']}")
         st.divider()
- 
+
     df = pd.DataFrame(results).rename(columns={
         "emp_no": "Emp No", "emp_name": "Name", "phone_number": "Phone",
         "working_area": "Working Area", "status": "Status",
         "joining_date": "Joined", "leaving_date": "Left", "dept_name": "Department",
     })
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
     st.caption(f"{len(df)} result(s).")
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # PENDING APPROVALS PAGE  (review externally-submitted data before it's live)
 # ---------------------------------------------------------------------------
@@ -421,13 +415,13 @@ def pending_approvals_page():
         "the Dashboard or Find Employee — until you approve it below. "
         "You only ever see submissions for your own department."
     )
- 
+
     pending = get_pending_employees(st.session_state.dept_id)
- 
+
     if not pending:
         st.success("No pending submissions for your department. All caught up.")
         return
- 
+
     for row in pending:
         with st.container(border=True):
             c1, c2, c3 = st.columns([3, 1, 1])
@@ -439,7 +433,7 @@ def pending_approvals_page():
                 )
                 st.caption(f"Submitted {row['submitted_at']}")
             with c2:
-                if st.button("✅ Approve", key=f"approve_{row['pending_id']}", use_container_width=True):
+                if st.button("✅ Approve", key=f"approve_{row['pending_id']}", width='stretch'):
                     # dept_id is enforced inside approve_pending_employee()
                     # itself, not just assumed from this page being scoped --
                     # see the SQL comment there.
@@ -448,53 +442,13 @@ def pending_approvals_page():
                     if success:
                         st.rerun()
             with c3:
-                if st.button("❌ Reject", key=f"reject_{row['pending_id']}", use_container_width=True):
+                if st.button("❌ Reject", key=f"reject_{row['pending_id']}", width='stretch'):
                     success, message = reject_pending_employee(row["pending_id"], st.session_state.dept_id)
                     (st.success if success else st.error)(message)
                     if success:
                         st.rerun()
- 
- 
-# ---------------------------------------------------------------------------
-# WEBHOOK SIMULATOR PAGE
-# ---------------------------------------------------------------------------
-def webhook_page():
-    st.header("🔌 Data Import Simulator")
-    st.write(
-        "This simulates a JSON POST hitting an intake endpoint, the way a "
-        "Google Forms → Apps Script webhook would. Submissions **do not** "
-        "go straight into the employee list — they land in **Pending "
-        "Approvals** for that department's head to review first. A **real** "
-        "HTTP version of this exact logic also runs separately in "
-        "`api_server.py` at `POST http://localhost:5001/webhook/employee`."
-    )
- 
-    default_payload = {
-        "emp_name": "Jane Smith",
-        "emp_no": "E2001",
-        "phone_number": "9123456780",
-        "department": "Welding",
-        "working_area": "Bay 5",
-        "joining_date": str(date.today()),
-    }
-    raw = st.text_area("Incoming JSON payload", value=json.dumps(default_payload, indent=2), height=220)
- 
-    if st.button("Simulate Incoming POST"):
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as e:
-            st.error(f"Invalid JSON: {e}")
-        else:
-            # Same function the real Flask endpoint calls -- see
-            # handle_webhook_employee() in database.py. It resolves the
-            # 'department' text to a dept_id and stages the record in
-            # pending_employees -- it does NOT touch the live employees
-            # table. Check "Pending Approvals" (as that department's head)
-            # to see and approve it.
-            success, message = handle_webhook_employee(payload)
-            (st.success if success else st.error)(message)
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # MAIN ROUTER
 # ---------------------------------------------------------------------------
@@ -505,27 +459,26 @@ def main():
     if st.query_params.get("page") == "submit":
         public_submission_page()
         return
- 
+
     if not st.session_state.logged_in:
         login_page()
         return
- 
+
     st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.caption(f"Department: {st.session_state.dept_name}")
- 
+
     pending_count = len(get_pending_employees(st.session_state.dept_id))
     approvals_label = f"Pending Approvals ({pending_count})" if pending_count else "Pending Approvals"
- 
+
     page = st.sidebar.radio(
         "Navigate",
-        ["Dashboard", "Manage Employees", approvals_label, "Find Employee",
-         "Share Submission Link", "Data Import Simulator"],
+        ["Dashboard", "Manage Employees", approvals_label, "Find Employee", "Share Submission Link"],
     )
     st.sidebar.divider()
     if st.sidebar.button("Log Out"):
         logout()
         st.rerun()
- 
+
     if page == "Dashboard":
         dashboard_page()
     elif page == "Manage Employees":
@@ -536,13 +489,10 @@ def main():
         find_employee_page()
     elif page == "Share Submission Link":
         share_link_page()
-    elif page == "Data Import Simulator":
-        webhook_page()
- 
- 
+
+
 if __name__ == "__main__":
     main()
-
 # code
 # streamlit run app.py
 # pip install -r requirements.txt

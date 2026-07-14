@@ -115,15 +115,16 @@ def init_db():
         )
     conn.commit()
 
-    cur.execute("SELECT dept_id FROM departments WHERE dept_name = 'Welding'")
-    welding_id = cur.fetchone()["dept_id"]
-    cur.execute("SELECT dept_id FROM departments WHERE dept_name = 'Department Y'")
-    y_id = cur.fetchone()["dept_id"]
+    cur.execute("SELECT dept_id, dept_name FROM departments")
+    dept_id_by_name = {row["dept_name"]: row["dept_id"] for row in cur.fetchall()}
 
-    # ---- Seed mock Department Heads ----
+    # ---- Seed one Department Head login per department ----
     mock_users = [
-        ("x_head", "welding123", welding_id),
-        ("y_head", "yhead123", y_id),
+        ("x_head", "welding123", dept_id_by_name["Welding"]),
+        ("y_head", "yhead123", dept_id_by_name["Department Y"]),
+        ("assembly_head", "assembly123", dept_id_by_name["Assembly"]),
+        ("qc_head", "qualitycontrol123", dept_id_by_name["Quality Control"]),
+        ("logistics_head", "logistics123", dept_id_by_name["Logistics"]),
     ]
     for username, plain_pw, dept_id in mock_users:
         cur.execute(
@@ -483,6 +484,5 @@ def handle_webhook_employee(payload: dict):
         joining_date=payload["joining_date"],
         dept_id=dept_id,
     )
- 
 #code 
 # sqlite3 department_system.db "SELECT * FROM users;"
