@@ -25,7 +25,6 @@ from database import (
     get_all_departments,
     get_department_employees,
     get_dept_name,
-    get_employees,
     get_pending_employees,
     get_summary_stats,
     handle_webhook_employee,
@@ -298,30 +297,12 @@ def add_employee_page():
 def dashboard_page():
     st.header("📊 Global Employee Dashboard")
     st.caption(
-        "Any logged-in department head can view employees across ALL "
-        "departments here — e.g. pull a master list of every 'Not Working' "
-        "employee company-wide to find contact info and working area for recruiting."
+        "A quick company-wide headcount summary, across every department. "
+        "Use Find Employee to look up or filter individual records."
     )
 
-    # Quick readout of overall headcount before the full list.
-    render_kpi_cards(get_summary_stats())
-
     # No dept_id restriction here -- read access is intentionally global.
-    # Use Find Employee for searching/sorting/filtering a specific person.
-    rows = get_employees()
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        st.warning("No employees yet.")
-        return
-
-    df = df.rename(columns={
-        "emp_no": "Emp No", "emp_name": "Name", "phone_number": "Phone",
-        "working_area": "Working Area", "status": "Status",
-        "joining_date": "Joined", "leaving_date": "Left", "dept_name": "Department",
-    })
-    st.dataframe(df, width='stretch', hide_index=True)
-    st.caption(f"{len(df)} employee(s) total.")
+    render_kpi_cards(get_summary_stats())
 
 
 # ---------------------------------------------------------------------------
