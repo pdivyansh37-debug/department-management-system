@@ -350,28 +350,34 @@ def dashboard_page():
 def find_employee_page():
     st.header("🔍 Find Employee")
     st.caption(
-        "Search and sort across every department to quickly pull up one "
-        "specific employee — by name, employee no., phone, working area, "
-        "or department."
+        "Search across every department to quickly pull up one specific "
+        "employee — by name, employee no., phone, working area, or department."
     )
 
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2 = st.columns([2, 1])
     with col1:
         search_term = st.text_input(
             "Search",
             placeholder="Type a name, employee no., phone number, working area, or department...",
         )
     with col2:
-        sort_by = st.selectbox("Sort by", ["Name", "Employee No", "Department", "Status", "Joining Date"])
-    with col3:
-        sort_order = st.selectbox("Order", ["Ascending", "Descending"])
+        sort_by = st.selectbox(
+            "Sort by", ["Name", "Employee No", "Department", "Working", "Not Working", "Joining Date"]
+        )
+
+    # "Working" / "Not Working" aren't sortable columns -- picking either one
+    # filters the list to that status instead, and falls back to sorting by
+    # name within it. Every other option sorts (ascending) across everyone.
+    status_filter = sort_by if sort_by in ("Working", "Not Working") else None
+    effective_sort_by = "Name" if status_filter else sort_by
 
     # No dept_id restriction here either -- same global-read principle as
     # the Dashboard, just with free-text search instead of dropdown filters.
     results = search_employees(
         search_term=search_term.strip() if search_term else None,
-        sort_by=sort_by,
-        sort_order=sort_order,
+        sort_by=effective_sort_by,
+        sort_order="Ascending",
+        status=status_filter,
     )
 
     if not results:
@@ -493,6 +499,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# code
-# streamlit run app.py
-# pip install -r requirements.txt

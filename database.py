@@ -325,7 +325,13 @@ def get_summary_stats():
 # ---------------------------------------------------------------------------
 # EMPLOYEES -- SEARCH & SORT (global, for the "Find Employee" tab)
 # ---------------------------------------------------------------------------
-def search_employees(search_term=None, sort_by="Name", sort_order="Ascending"):
+def search_employees(search_term=None, sort_by="Name", sort_order="Ascending", status=None):
+    """
+    status, when given ('Working' or 'Not Working'), filters the results to
+    that status at the SQL level -- same pattern as get_employees(). Used by
+    the Find Employee page when the person picks "Working"/"Not Working"
+    from the dropdown instead of a real sortable column.
+    """
     allowed_sort_columns = {
         "Name": "e.emp_name",
         "Employee No": "e.emp_no",
@@ -354,6 +360,9 @@ def search_employees(search_term=None, sort_by="Name", sort_order="Ascending"):
         )"""
         like_term = f"%{search_term}%"
         params.extend([like_term] * 5)
+    if status:
+        query += " AND e.status = %s"
+        params.append(status)
 
     query += f" ORDER BY {sort_column} {order}"  # sort_column whitelist-mapped above, safe to inline
 
@@ -484,5 +493,3 @@ def handle_webhook_employee(payload: dict):
         joining_date=payload["joining_date"],
         dept_id=dept_id,
     )
-#code 
-# sqlite3 department_system.db "SELECT * FROM users;"
