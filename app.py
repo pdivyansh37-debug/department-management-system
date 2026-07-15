@@ -179,8 +179,7 @@ def add_employee_page():
     st.header("👥 Manage Employees")
     st.info(
         f"Logged in as **{st.session_state.username}** — both tabs below only "
-        f"ever touch **{st.session_state.dept_name}**. There is no field "
-        f"anywhere on this page to target a different department."
+        f" touch your **{st.session_state.dept_name}** department's records. You cannot add or update employees in any other department."
     )
 
     tab_add, tab_update = st.tabs(["➕ Add New Employee", "🔄 Update Employee Status"])
