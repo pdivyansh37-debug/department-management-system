@@ -53,7 +53,6 @@ def get_connection():
 
 
 def hash_password(raw_password: str) -> str:
-    """SHA-256 hash so plaintext passwords are never stored or compared directly."""
     return hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
 
 
@@ -82,7 +81,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS employees (
             emp_no          TEXT PRIMARY KEY,
             emp_name        TEXT NOT NULL,
-            phone_number    TEXT,
+            phone_number    TEXT NOT NULL,
             working_area    TEXT,
             status          TEXT NOT NULL CHECK (status IN ('Working', 'Not Working')),
             joining_date    TEXT,
@@ -96,7 +95,7 @@ def init_db():
             pending_id      SERIAL PRIMARY KEY,
             emp_no          TEXT NOT NULL,
             emp_name        TEXT NOT NULL,
-            phone_number    TEXT,
+            phone_number    TEXT NOT NULL,
             working_area    TEXT,
             joining_date    TEXT,
             dept_id         INTEGER NOT NULL REFERENCES departments(dept_id),

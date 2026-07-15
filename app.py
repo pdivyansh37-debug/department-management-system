@@ -68,7 +68,7 @@ def public_submission_page():
     This function is only reached because main() checks st.query_params
     BEFORE the login gate.
     """
-    st.title("🏭 Employee Data Submission")
+    st.title("Employee Data Submission")
     st.caption(
         "Fill in your details below. Your department head will review and "
         "approve this before it becomes part of the official records — you "
@@ -150,7 +150,7 @@ def share_link_page():
 # LOGIN PAGE
 # ---------------------------------------------------------------------------
 def login_page():
-    st.title("🏭 Department Management System")
+    st.title("Department Management System")
     eyebrow("Restricted Access · Department Heads Only")
     st.subheader("Department Head Login")
 
