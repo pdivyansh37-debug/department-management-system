@@ -303,30 +303,16 @@ def dashboard_page():
         "employee company-wide to find contact info and working area for recruiting."
     )
 
-    # Quick readout of overall headcount before diving into filters/search.
+    # Quick readout of overall headcount before the full list.
     render_kpi_cards(get_summary_stats())
 
-    departments = get_all_departments()
-    dept_options = {"All Departments": None}
-    dept_options.update({d["dept_name"]: d["dept_id"] for d in departments})
-
-    col1, col2 = st.columns(2)
-    with col1:
-        dept_choice = st.selectbox("Filter by Department", list(dept_options.keys()))
-    with col2:
-        status_choice = st.selectbox("Filter by Status", ["All", "Working", "Not Working"])
-
-    # get_employees() applies NO dept_id restriction based on the logged-in
-    # user's own department -- read access is intentionally global. The only
-    # filtering is whatever this head picked in the dropdowns above.
-    rows = get_employees(
-        dept_id=dept_options[dept_choice],
-        status=None if status_choice == "All" else status_choice,
-    )
+    # No dept_id restriction here -- read access is intentionally global.
+    # Use Find Employee for searching/sorting/filtering a specific person.
+    rows = get_employees()
 
     df = pd.DataFrame(rows)
     if df.empty:
-        st.warning("No employees match these filters.")
+        st.warning("No employees yet.")
         return
 
     df = df.rename(columns={
@@ -335,7 +321,7 @@ def dashboard_page():
         "joining_date": "Joined", "leaving_date": "Left", "dept_name": "Department",
     })
     st.dataframe(df, width='stretch', hide_index=True)
-    st.caption(f"{len(df)} employee(s) found.")
+    st.caption(f"{len(df)} employee(s) total.")
 
     if status_choice == "Not Working":
         st.info(
