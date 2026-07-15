@@ -323,12 +323,6 @@ def dashboard_page():
     st.dataframe(df, width='stretch', hide_index=True)
     st.caption(f"{len(df)} employee(s) total.")
 
-    if status_choice == "Not Working":
-        st.info(
-            "💡 This is your cross-department pool of ex-employees — "
-            "phone number and last working area are shown above for easy recruiting."
-        )
-
 
 # ---------------------------------------------------------------------------
 # FIND EMPLOYEE PAGE  (global search + sort -- any head, any department)
