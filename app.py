@@ -35,7 +35,7 @@ from database import (
 )
 from theme import apply_theme, eyebrow, render_kpi_cards
 
-st.set_page_config(page_title="Department Management System", page_icon="🏭", layout="wide")
+st.set_page_config(page_title="Department Management System", page_icon=None, layout="wide")
 apply_theme()
 init_db()  # safe to call every run -- uses CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE
 
@@ -62,15 +62,14 @@ def logout():
 def public_submission_page():
     """
     A no-login page any employee can open via a shared link or QR code.
-    Submissions go through the exact same handle_webhook_employee() logic
-    used by the Flask webhook endpoint (api_server.py) -- they land in the
+    Submissions go through they land in the
     pending-approval queue, never straight into the live employees table.
     This function is only reached because main() checks st.query_params
     BEFORE the login gate.
     """
     st.title("Employee Data Submission")
     st.caption(
-        "Fill in your details below. Your department head will review and "
+        "Fill in your details below. Your information will be reviewed and "
         "approve this before it becomes part of the official records — you "
         "don't need an account to submit."
     )
@@ -295,9 +294,9 @@ def add_employee_page():
 # DASHBOARD PAGE  (read access -- global, any head can view any department)
 # ---------------------------------------------------------------------------
 def dashboard_page():
-    st.header("📊 Global Employee Dashboard")
+    st.header("📊Employee Dashboard")
     st.caption(
-        "A quick company-wide headcount summary, across every department. "
+        "A quick summary, across every department. "
         "Use Find Employee to look up or filter individual records."
     )
 
@@ -395,7 +394,7 @@ def pending_approvals_page():
             with c1:
                 st.markdown(f"**{row['emp_name']}**  ·  {row['emp_no']}")
                 st.caption(
-                    f"📞 {row['phone_number']}  ·  📍 {row['working_area']}  ·  "
+                    f" {row['phone_number']}  ·   {row['working_area']}  ·  "
                     f"Joining {row['joining_date']}"
                 )
                 st.caption(f"Submitted {row['submitted_at']}")
@@ -431,7 +430,7 @@ def main():
         login_page()
         return
 
-    st.sidebar.title(f"👤 {st.session_state.username}")
+    st.sidebar.title(f" {st.session_state.username}")
     st.sidebar.caption(f"Department: {st.session_state.dept_name}")
 
     pending_count = len(get_pending_employees(st.session_state.dept_id))
