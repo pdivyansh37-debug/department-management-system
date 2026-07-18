@@ -22,6 +22,7 @@ from database import (
     add_employee,
     approve_pending_employee,
     authenticate_user,
+    change_password,
     get_all_departments,
     get_department_employees,
     get_dept_name,
@@ -35,7 +36,7 @@ from database import (
 )
 from theme import apply_theme, eyebrow, render_kpi_cards
 
-st.set_page_config(page_title="Department Management System", page_icon=None, layout="wide")
+st.set_page_config(page_title="Department Management System", page_icon="🏭", layout="wide")
 apply_theme()
 init_db()  # safe to call every run -- uses CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE
 
@@ -62,14 +63,15 @@ def logout():
 def public_submission_page():
     """
     A no-login page any employee can open via a shared link or QR code.
-    Submissions go through they land in the
+    Submissions go through the exact same handle_webhook_employee() logic
+    used by the Flask webhook endpoint (api_server.py) -- they land in the
     pending-approval queue, never straight into the live employees table.
     This function is only reached because main() checks st.query_params
     BEFORE the login gate.
     """
-    st.title("Employee Data Submission")
+    st.title("🏭 Employee Data Submission")
     st.caption(
-        "Fill in your details below. Your information will be reviewed and "
+        "Fill in your details below. Your department head will review and "
         "approve this before it becomes part of the official records — you "
         "don't need an account to submit."
     )
@@ -146,10 +148,44 @@ def share_link_page():
 
 
 # ---------------------------------------------------------------------------
+# MY INFO PAGE  (account details + change password)
+# ---------------------------------------------------------------------------
+def my_info_page():
+    st.header("👤 My Info")
+    st.caption("Your account details, and where you can change your password.")
+
+    st.write(f"**Username:** {st.session_state.username}")
+    st.write(f"**Department:** {st.session_state.dept_name}")
+
+    st.divider()
+    st.subheader("Change Password")
+
+    with st.form("change_password_form", clear_on_submit=True):
+        current_pw = st.text_input("Current Password", type="password")
+        new_pw = st.text_input("New Password", type="password")
+        confirm_pw = st.text_input("Confirm New Password", type="password")
+        submitted = st.form_submit_button("Update Password")
+
+    if submitted:
+        if not all([current_pw, new_pw, confirm_pw]):
+            st.error("Please fill in all fields.")
+        elif new_pw != confirm_pw:
+            st.error("New password and confirmation don't match.")
+        elif len(new_pw) < 6:
+            st.error("New password must be at least 6 characters.")
+        else:
+            # change_password() re-verifies current_pw against the database
+            # itself -- this check isn't just a UI nicety, it's enforced
+            # server-side too. See database.py for that.
+            success, message = change_password(st.session_state.username, current_pw, new_pw)
+            (st.success if success else st.error)(message)
+
+
+# ---------------------------------------------------------------------------
 # LOGIN PAGE
 # ---------------------------------------------------------------------------
 def login_page():
-    st.title("Department Management System")
+    st.title("🏭 Department Management System")
     eyebrow("Restricted Access · Department Heads Only")
     st.subheader("Department Head Login")
 
@@ -179,7 +215,8 @@ def add_employee_page():
     st.header("👥 Manage Employees")
     st.info(
         f"Logged in as **{st.session_state.username}** — both tabs below only "
-        f" touch your **{st.session_state.dept_name}** department's records. You cannot add or update employees in any other department."
+        f"ever touch **{st.session_state.dept_name}**. There is no field "
+        f"anywhere on this page to target a different department."
     )
 
     tab_add, tab_update = st.tabs(["➕ Add New Employee", "🔄 Update Employee Status"])
@@ -293,9 +330,9 @@ def add_employee_page():
 # DASHBOARD PAGE  (read access -- global, any head can view any department)
 # ---------------------------------------------------------------------------
 def dashboard_page():
-    st.header("📊Employee Dashboard")
+    st.header("📊 Global Employee Dashboard")
     st.caption(
-        "A quick summary, across every department. "
+        "A quick company-wide headcount summary, across every department. "
         "Use Find Employee to look up or filter individual records."
     )
 
@@ -366,7 +403,19 @@ def find_employee_page():
         "joining_date": "Joined", "leaving_date": "Left", "dept_name": "Department",
     })
     st.dataframe(df, width='stretch', hide_index=True)
-    st.caption(f"{len(df)} result(s).")
+
+    col_caption, col_download = st.columns([3, 1])
+    with col_caption:
+        st.caption(f"{len(df)} result(s).")
+    with col_download:
+        # Exports exactly what's currently shown -- respects the search
+        # term, sort, and Working/Not Working filter above.
+        st.download_button(
+            "⬇️ Download as CSV",
+            data=df.to_csv(index=False).encode("utf-8"),
+            file_name="employees.csv",
+            mime="text/csv",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +442,7 @@ def pending_approvals_page():
             with c1:
                 st.markdown(f"**{row['emp_name']}**  ·  {row['emp_no']}")
                 st.caption(
-                    f" {row['phone_number']}  ·   {row['working_area']}  ·  "
+                    f"📞 {row['phone_number']}  ·  📍 {row['working_area']}  ·  "
                     f"Joining {row['joining_date']}"
                 )
                 st.caption(f"Submitted {row['submitted_at']}")
@@ -429,7 +478,7 @@ def main():
         login_page()
         return
 
-    st.sidebar.title(f" {st.session_state.username}")
+    st.sidebar.title(f"👤 {st.session_state.username}")
     st.sidebar.caption(f"Department: {st.session_state.dept_name}")
 
     pending_count = len(get_pending_employees(st.session_state.dept_id))
@@ -437,7 +486,8 @@ def main():
 
     page = st.sidebar.radio(
         "Navigate",
-        ["Dashboard", "Manage Employees", approvals_label, "Find Employee", "Share Submission Link"],
+        ["Dashboard", "Manage Employees", approvals_label, "Find Employee",
+         "Share Submission Link", "My Info"],
     )
     st.sidebar.divider()
     if st.sidebar.button("Log Out"):
@@ -454,6 +504,8 @@ def main():
         find_employee_page()
     elif page == "Share Submission Link":
         share_link_page()
+    elif page == "My Info":
+        my_info_page()
 
 
 if __name__ == "__main__":
