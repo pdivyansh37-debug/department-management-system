@@ -53,6 +53,7 @@ def get_connection():
 
 
 def hash_password(raw_password: str) -> str:
+    """SHA-256 hash so plaintext passwords are never stored or compared directly."""
     return hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
 
 
@@ -81,7 +82,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS employees (
             emp_no          TEXT PRIMARY KEY,
             emp_name        TEXT NOT NULL,
-            phone_number    TEXT NOT NULL,
+            phone_number    TEXT,
             working_area    TEXT,
             status          TEXT NOT NULL CHECK (status IN ('Working', 'Not Working')),
             joining_date    TEXT,
@@ -95,7 +96,7 @@ def init_db():
             pending_id      SERIAL PRIMARY KEY,
             emp_no          TEXT NOT NULL,
             emp_name        TEXT NOT NULL,
-            phone_number    TEXT NOT NULL,
+            phone_number    TEXT,
             working_area    TEXT,
             joining_date    TEXT,
             dept_id         INTEGER NOT NULL REFERENCES departments(dept_id),
@@ -155,6 +156,36 @@ def authenticate_user(username: str, password: str):
     cur.close()
     conn.close()
     return dict(row) if row else None
+
+
+def change_password(username: str, current_password: str, new_password: str):
+    """
+    Updates a user's password -- but only after verifying current_password
+    matches what's stored, using the same username+hashed-password WHERE
+    clause pattern as authenticate_user(). This means the change cannot
+    succeed without proving you know the current password first, even if
+    someone is already sitting in a logged-in session.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT user_id FROM users WHERE username = %s AND password = %s",
+        (username, hash_password(current_password)),
+    )
+    row = cur.fetchone()
+    if row is None:
+        cur.close()
+        conn.close()
+        return False, "Current password is incorrect."
+
+    cur.execute(
+        "UPDATE users SET password = %s WHERE username = %s",
+        (hash_password(new_password), username),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return True, "Password updated successfully."
 
 
 # ---------------------------------------------------------------------------
