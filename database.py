@@ -105,12 +105,63 @@ def init_db():
                             CHECK (status IN ('Pending', 'Approved', 'Rejected'))
         )
     """)
+
+    # Skills are separate from departments -- an employee's skill (e.g.
+    # Welding) doesn't have to match their department (e.g. Operations).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS skills (
+            skill_id    SERIAL PRIMARY KEY,
+            skill_name  TEXT NOT NULL UNIQUE
+        )
+    """)
+
+    # Many-to-many: one employee can have several skills, one skill can
+    # belong to employees across many departments.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS employee_skills (
+            emp_no      TEXT NOT NULL REFERENCES employees(emp_no) ON DELETE CASCADE,
+            skill_id    INTEGER NOT NULL REFERENCES skills(skill_id),
+            PRIMARY KEY (emp_no, skill_id)
+        )
+    """)
+    conn.commit()
+
+    # CREATE TABLE IF NOT EXISTS never adds columns to a table that already
+    # exists (e.g. on the live database from before this feature existed) --
+    # ADD COLUMN IF NOT EXISTS is what actually applies to an existing table.
+    cur.execute("ALTER TABLE pending_employees ADD COLUMN IF NOT EXISTS skills TEXT")
+    conn.commit()
+
+    # ---- Migrate old department names in place (preserves dept_id, so
+    # every existing employee/user FK stays correctly linked -- nobody
+    # needs to be reassigned). Guarded so this is safe to run repeatedly,
+    # and safe even on a fresh database where 'Welding' never existed. ----
+    cur.execute("""
+        UPDATE departments SET dept_name = 'Operations'
+        WHERE dept_name = 'Welding'
+          AND NOT EXISTS (SELECT 1 FROM departments WHERE dept_name = 'Operations')
+    """)
+    cur.execute("""
+        UPDATE departments SET dept_name = 'Packaging'
+        WHERE dept_name = 'Department Y'
+          AND NOT EXISTS (SELECT 1 FROM departments WHERE dept_name = 'Packaging')
+    """)
     conn.commit()
 
     # ---- Seed departments (idempotent via ON CONFLICT ... DO NOTHING) ----
-    for name in ["Welding", "Department Y", "Assembly", "Quality Control", "Logistics"]:
+    for name in ["Operations", "Packaging", "Assembly", "Quality Control",
+                 "Logistics", "R&D", "Maintenance"]:
         cur.execute(
             "INSERT INTO departments (dept_name) VALUES (%s) ON CONFLICT (dept_name) DO NOTHING",
+            (name,),
+        )
+    conn.commit()
+
+    # ---- Seed skills (Welding lives here now, not as a department) ----
+    for name in ["Welding", "Machining", "Electrical Wiring", "Forklift Operation",
+                 "Quality Inspection", "CNC Operation", "Painting", "Assembly Line Operation"]:
+        cur.execute(
+            "INSERT INTO skills (skill_name) VALUES (%s) ON CONFLICT (skill_name) DO NOTHING",
             (name,),
         )
     conn.commit()
@@ -120,11 +171,13 @@ def init_db():
 
     # ---- Seed one Department Head login per department ----
     mock_users = [
-        ("x_head", "welding123", dept_id_by_name["Welding"]),
-        ("y_head", "yhead123", dept_id_by_name["Department Y"]),
+        ("x_head", "welding123", dept_id_by_name["Operations"]),
+        ("y_head", "yhead123", dept_id_by_name["Packaging"]),
         ("assembly_head", "assembly123", dept_id_by_name["Assembly"]),
         ("qc_head", "qualitycontrol123", dept_id_by_name["Quality Control"]),
         ("logistics_head", "logistics123", dept_id_by_name["Logistics"]),
+        ("rnd_head", "randd123", dept_id_by_name["R&D"]),
+        ("maintenance_head", "maintenance123", dept_id_by_name["Maintenance"]),
     ]
     for username, plain_pw, dept_id in mock_users:
         cur.execute(
@@ -226,14 +279,85 @@ def get_dept_id_by_name(dept_name: str):
 
 
 # ---------------------------------------------------------------------------
+# SKILLS
+# ---------------------------------------------------------------------------
+def get_all_skills():
+    """Every skill, alphabetically -- used to populate the skills multiselect."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT skill_id, skill_name FROM skills ORDER BY skill_name")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_skill_id_by_name(skill_name: str):
+    """
+    Case-insensitive, trimmed match -- same pattern as get_dept_id_by_name().
+    Used to resolve a pending submission's stored skill names back into
+    real skill_ids at approval time.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT skill_id FROM skills WHERE LOWER(TRIM(skill_name)) = LOWER(TRIM(%s))",
+        (skill_name,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row["skill_id"] if row else None
+
+
+def _attach_skills(rows):
+    """
+    Given a list of employee row dicts (each with an 'emp_no'), fetches
+    every skill for all of them in ONE extra query and attaches a
+    comma-joined 'skills' string to each row. Shared by get_employees()
+    and search_employees() so both show skills the same way.
+    """
+    if not rows:
+        return rows
+    emp_nos = [r["emp_no"] for r in rows]
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT es.emp_no, s.skill_name
+        FROM employee_skills es
+        JOIN skills s ON es.skill_id = s.skill_id
+        WHERE es.emp_no = ANY(%s)
+        ORDER BY s.skill_name
+        """,
+        (emp_nos,),
+    )
+    skill_rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    skills_by_emp = {}
+    for sr in skill_rows:
+        skills_by_emp.setdefault(sr["emp_no"], []).append(sr["skill_name"])
+    for r in rows:
+        r["skills"] = ", ".join(skills_by_emp.get(r["emp_no"], []))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # EMPLOYEES -- WRITE (restricted)
 # ---------------------------------------------------------------------------
 def add_employee(emp_no, emp_name, phone_number, working_area, status,
-                  joining_date, leaving_date, dept_id):
+                  joining_date, leaving_date, dept_id, skill_ids=None):
     """
     dept_id must be supplied by the caller from a trusted source (the
     logged-in head's session, or a resolved department name) -- never from
     a user-editable field. See app.py for how this is enforced end-to-end.
+
+    skill_ids is an optional list of skills.skill_id values -- inserted
+    into employee_skills right after the employee row itself, in the same
+    transaction, so a partially-added employee (row created but no skills)
+    can't happen.
     """
     conn = get_connection()
     cur = conn.cursor()
@@ -248,6 +372,12 @@ def add_employee(emp_no, emp_name, phone_number, working_area, status,
             (emp_no, emp_name, phone_number, working_area, status,
              joining_date, leaving_date, dept_id),
         )
+        for skill_id in (skill_ids or []):
+            cur.execute(
+                "INSERT INTO employee_skills (emp_no, skill_id) VALUES (%s, %s) "
+                "ON CONFLICT (emp_no, skill_id) DO NOTHING",
+                (emp_no, skill_id),
+            )
         conn.commit()
         return True, f"Employee '{emp_name}' added successfully."
     except psycopg2.IntegrityError as e:
@@ -285,7 +415,7 @@ def get_employees(dept_id=None, status=None):
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    return _attach_skills([dict(r) for r in rows])
 
 
 # ---------------------------------------------------------------------------
@@ -381,15 +511,23 @@ def search_employees(search_term=None, sort_by="Name", sort_order="Ascending", s
     """
     params = []
     if search_term:
+        # Covers name/emp_no/phone/working_area/department directly, plus
+        # skill via an EXISTS check against employee_skills -- so typing a
+        # skill name (e.g. "welding") also finds the right people.
         query += """ AND (
             e.emp_name ILIKE %s OR
             e.emp_no ILIKE %s OR
             e.phone_number ILIKE %s OR
             e.working_area ILIKE %s OR
-            d.dept_name ILIKE %s
+            d.dept_name ILIKE %s OR
+            EXISTS (
+                SELECT 1 FROM employee_skills es
+                JOIN skills s ON es.skill_id = s.skill_id
+                WHERE es.emp_no = e.emp_no AND s.skill_name ILIKE %s
+            )
         )"""
         like_term = f"%{search_term}%"
-        params.extend([like_term] * 5)
+        params.extend([like_term] * 6)
     if status:
         query += " AND e.status = %s"
         params.append(status)
@@ -402,23 +540,23 @@ def search_employees(search_term=None, sort_by="Name", sort_order="Ascending", s
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    return _attach_skills([dict(r) for r in rows])
 
 
 # ---------------------------------------------------------------------------
 # PENDING APPROVALS (externally-submitted data awaiting head sign-off)
 # ---------------------------------------------------------------------------
-def add_pending_employee(emp_no, emp_name, phone_number, working_area, joining_date, dept_id):
+def add_pending_employee(emp_no, emp_name, phone_number, working_area, joining_date, dept_id, skills=""):
     conn = get_connection()
     cur = conn.cursor()
     try:
         cur.execute(
             """
             INSERT INTO pending_employees
-                (emp_no, emp_name, phone_number, working_area, joining_date, dept_id, submitted_at, status)
-            VALUES (%s, %s, %s, %s, %s, %s, NOW()::text, 'Pending')
+                (emp_no, emp_name, phone_number, working_area, joining_date, dept_id, submitted_at, status, skills)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW()::text, 'Pending', %s)
             """,
-            (emp_no, emp_name, phone_number, working_area, joining_date, dept_id),
+            (emp_no, emp_name, phone_number, working_area, joining_date, dept_id, skills),
         )
         conn.commit()
         return True, "Submission received — awaiting department head approval."
@@ -436,7 +574,7 @@ def get_pending_employees(dept_id):
     cur.execute(
         """
         SELECT pending_id, emp_no, emp_name, phone_number, working_area,
-               joining_date, submitted_at
+               joining_date, submitted_at, skills
         FROM pending_employees
         WHERE dept_id = %s AND status = 'Pending'
         ORDER BY submitted_at
@@ -463,6 +601,12 @@ def approve_pending_employee(pending_id, dept_id):
     if row is None:
         return False, "Submission not found in your department (or already handled)."
 
+    # skills was stored as free text (comma-joined skill names) on the
+    # pending row -- resolve each name back to a real skill_id here, right
+    # before creating the actual employee record.
+    skill_names = [s.strip() for s in (row.get("skills") or "").split(",") if s.strip()]
+    skill_ids = [sid for sid in (get_skill_id_by_name(name) for name in skill_names) if sid is not None]
+
     success, message = add_employee(
         emp_no=row["emp_no"],
         emp_name=row["emp_name"],
@@ -472,6 +616,7 @@ def approve_pending_employee(pending_id, dept_id):
         joining_date=row["joining_date"],
         leaving_date=None,
         dept_id=row["dept_id"],
+        skill_ids=skill_ids,
     )
     if not success:
         return False, message
@@ -515,6 +660,12 @@ def handle_webhook_employee(payload: dict):
     if dept_id is None:
         return False, f"Unknown department '{payload['department']}' -- no matching dept_id found."
 
+    # 'skills' is optional -- accepts either a list (from the Streamlit
+    # forms) or an already comma-separated string (e.g. from a raw JSON
+    # POST), and stores it as text on the pending row either way.
+    skills_value = payload.get("skills") or []
+    skills_text = skills_value if isinstance(skills_value, str) else ", ".join(skills_value)
+
     return add_pending_employee(
         emp_no=str(payload["emp_no"]),
         emp_name=payload["emp_name"],
@@ -522,4 +673,5 @@ def handle_webhook_employee(payload: dict):
         working_area=payload["working_area"],
         joining_date=payload["joining_date"],
         dept_id=dept_id,
+        skills=skills_text,
     )

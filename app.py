@@ -7,8 +7,13 @@ Run with:
     streamlit run app.py
 
 Mock login accounts (seeded automatically on first run):
-    welding_head / welding123   -> Welding Dept
-    y_head       / yhead123     -> Department Y
+    x_head           / welding123        -> Operations
+    y_head           / yhead123          -> Packaging
+    assembly_head    / assembly123       -> Assembly
+    qc_head          / qualitycontrol123 -> Quality Control
+    logistics_head   / logistics123      -> Logistics
+    rnd_head         / randd123          -> R&D
+    maintenance_head / maintenance123    -> Maintenance
 """
 
 import io
@@ -24,6 +29,7 @@ from database import (
     authenticate_user,
     change_password,
     get_all_departments,
+    get_all_skills,
     get_department_employees,
     get_dept_name,
     get_pending_employees,
@@ -77,12 +83,14 @@ def public_submission_page():
     )
 
     dept_names = [d["dept_name"] for d in get_all_departments()]
+    skill_names = [s["skill_name"] for s in get_all_skills()]
 
     with st.form("public_submit_form", clear_on_submit=True):
         emp_name = st.text_input("Full Name*")
         emp_no = st.text_input("Employee No.*", placeholder="e.g. E1001")
         phone_number = st.text_input("Phone Number*")
         department = st.selectbox("Department*", dept_names)
+        skills = st.multiselect("Skills", skill_names)
         working_area = st.text_input("Working Area*")
         joining_date = st.date_input("Joining Date*", value=date.today())
         submitted = st.form_submit_button("Submit for Approval")
@@ -101,6 +109,7 @@ def public_submission_page():
                 "department": department,
                 "working_area": working_area.strip(),
                 "joining_date": str(joining_date),
+                "skills": skills,
             })
             if success:
                 st.success("Submitted! Your department head has been notified for approval.")
@@ -232,11 +241,13 @@ def add_employee_page():
         status = st.radio("Status", ["Working", "Not Working"], horizontal=True, key="add_status")
 
         leaving_date = None
+        skill_options = {s["skill_name"]: s["skill_id"] for s in get_all_skills()}
         with st.form("add_employee_form", clear_on_submit=True):
             emp_no = st.text_input("Employee No.*", placeholder="e.g. E1001")
             emp_name = st.text_input("Employee Name*")
             phone_number = st.text_input("Phone Number*")
             working_area = st.text_input("Working Area*")
+            selected_skills = st.multiselect("Skills", list(skill_options.keys()))
             joining_date = st.date_input("Joining Date*", value=date.today())
 
             # CONDITIONAL LOGIC: leaving_date is locked/hidden while
@@ -269,6 +280,7 @@ def add_employee_page():
                     joining_date=str(joining_date),
                     leaving_date=str(leaving_date) if status == "Not Working" else None,
                     dept_id=st.session_state.dept_id,  # <-- enforced here
+                    skill_ids=[skill_options[name] for name in selected_skills],
                 )
                 (st.success if success else st.error)(message)
 
@@ -392,6 +404,7 @@ def find_employee_page():
         c3.metric("Working Area", emp["working_area"])
         st.write(f"**Employee No:** {emp['emp_no']}")
         st.write(f"**Phone:** {emp['phone_number']}")
+        st.write(f"**Skills:** {emp['skills'] or '—'}")
         st.write(f"**Joined:** {emp['joining_date']}")
         if emp["leaving_date"]:
             st.write(f"**Left:** {emp['leaving_date']}")
@@ -399,7 +412,7 @@ def find_employee_page():
 
     df = pd.DataFrame(results).rename(columns={
         "emp_no": "Emp No", "emp_name": "Name", "phone_number": "Phone",
-        "working_area": "Working Area", "status": "Status",
+        "working_area": "Working Area", "status": "Status", "skills": "Skills",
         "joining_date": "Joined", "leaving_date": "Left", "dept_name": "Department",
     })
     st.dataframe(df, width='stretch', hide_index=True)
@@ -445,6 +458,8 @@ def pending_approvals_page():
                     f"📞 {row['phone_number']}  ·  📍 {row['working_area']}  ·  "
                     f"Joining {row['joining_date']}"
                 )
+                if row.get("skills"):
+                    st.caption(f"🛠️ Skills: {row['skills']}")
                 st.caption(f"Submitted {row['submitted_at']}")
             with c2:
                 if st.button("✅ Approve", key=f"approve_{row['pending_id']}", width='stretch'):
