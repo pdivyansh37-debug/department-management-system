@@ -83,15 +83,31 @@ def _letter_seq(n: int) -> str:
 # SCHEMA
 # ---------------------------------------------------------------------------
 def _old_schema_present(cur) -> bool:
-    """True if a pre-hierarchy `departments` table (no `level` column) exists."""
+    """True if either `departments` or `users` predates the hierarchy model.
+    Checked independently per table -- a database can have a stale `users`
+    table (e.g. missing/renamed `dept_id`) even if `departments` looks fine,
+    or vice versa, depending on exactly when a previous deploy failed."""
     cur.execute("SELECT to_regclass('public.departments') AS t")
-    if cur.fetchone()["t"] is None:
-        return False
-    cur.execute(
-        "SELECT column_name FROM information_schema.columns "
-        "WHERE table_name = 'departments' AND column_name = 'level'"
-    )
-    return cur.fetchone() is None
+    departments_exists = cur.fetchone()["t"] is not None
+    if departments_exists:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'departments' AND column_name = 'level'"
+        )
+        if cur.fetchone() is None:
+            return True
+
+    cur.execute("SELECT to_regclass('public.users') AS t")
+    users_exists = cur.fetchone()["t"] is not None
+    if users_exists:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'users' AND column_name = 'dept_id'"
+        )
+        if cur.fetchone() is None:
+            return True
+
+    return False
 
 
 def init_db():
