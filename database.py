@@ -1,10 +1,16 @@
 """
 database.py (Postgres edition -- hierarchical departments)
 ------------------------------------------------------------
-Phase 2: departments are now a 5-level self-referencing tree instead of a
-single flat table:
+Departments are a self-referencing tree. The full model supports 5 levels:
 
     Facility -> Main Department -> Sub-Department -> Section/Line -> Workstation/Cell
+
+but Facility is NOT IN USE YET -- it stays in the schema's CHECK constraint
+so it can be turned on later without a migration, but nothing creates a
+Facility row right now. Main Department is the current root of the tree
+(parent_id = NULL). To bring Facility back later: call add_facility(), then
+pass its dept_id into add_main_department() as the new parent -- see the
+comment on add_main_department() for exactly what to change.
 
 Every node lives in ONE `departments` table (adjacency list: parent_id points
 at its parent). Two columns make queries fast without recursive CTEs:
@@ -14,7 +20,7 @@ at its parent). Two columns make queries fast without recursive CTEs:
                     Lets us answer "does this workstation belong to this
                     head's department?" with a single equality check.
   - path_name    : the full human-readable breadcrumb, precomputed once at
-                    insert time, e.g. "Plant 1 > Assembly (AB) > AB1 > AB1A > AB1A1".
+                    insert time, e.g. "Assembly (AB) > AB1 > AB1A > AB1A1".
                     Used for display AND as the free-text search target on
                     the Find Employee page -- searching "AB1" finds every
                     employee anywhere under that sub-department.
@@ -43,7 +49,9 @@ import os
 import psycopg2
 import psycopg2.extras
 
-LEVELS = ["Facility", "Main Department", "Sub-Department", "Section/Line", "Workstation/Cell"]
+# Active levels, root to leaf. 'Facility' deliberately excluded for now --
+# see the module docstring above for how to re-enable it later.
+LEVELS = ["Main Department", "Sub-Department", "Section/Line", "Workstation/Cell"]
 
 
 def _get_database_url() -> str:
@@ -89,6 +97,13 @@ def _old_schema_present(cur) -> bool:
             "WHERE table_name = 'departments' AND column_name = 'level'"
         )
         if cur.fetchone() is None:
+            return True
+
+        # Facility used to be the root; it's dormant now (Main Department is
+        # the root). If any row is still parented under a Facility from an
+        # earlier run, the tree is built on the old shape -- rebuild.
+        cur.execute("SELECT 1 FROM departments WHERE level = 'Facility' LIMIT 1")
+        if cur.fetchone() is not None:
             return True
 
     cur.execute("SELECT to_regclass('public.users') AS t")
@@ -233,17 +248,17 @@ def init_db():
 
 
 def _seed_starter_hierarchy():
-    """One Facility + 7 Main Departments, matching the old department list.
-    Sub-Departments/Sections/Workstations are left for heads to build via
-    the Manage Departments page -- that's the whole point of self-service."""
-    facility_id = add_facility("Plant 1")
+    """7 Main Departments as the current root of the tree, matching the old
+    department list. Sub-Departments/Sections/Workstations are left for
+    heads to build via the Manage Departments page -- that's the whole
+    point of self-service. (No Facility row is created -- see module
+    docstring for how to add that layer back in later.)"""
     for label, code in [
         ("Operations", "OP"), ("Packaging", "PK"), ("Assembly", "AS"),
         ("Quality Control", "QC"), ("Logistics", "LG"), ("R&D", "RD"),
         ("Maintenance", "MT"),
     ]:
-        add_main_department(facility_id, label, code)
-    return facility_id
+        add_main_department(label, code)
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +304,12 @@ def change_password(username: str, current_password: str, new_password: str):
 # DEPARTMENT HIERARCHY -- WRITE
 # ---------------------------------------------------------------------------
 def add_facility(name: str) -> int:
-    """Top of the tree. Returns the new dept_id."""
+    """DORMANT for now -- not called anywhere while Main Department is the
+    tree's root. Kept so re-enabling the Facility layer later is just:
+    (1) call this to create the Facility row, (2) change
+    add_main_department() below to take a facility_id again and set it as
+    parent_id/prefix the path_name with it, instead of leaving both NULL/bare
+    like it does today. Returns the new dept_id."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -307,9 +327,10 @@ def add_facility(name: str) -> int:
     return dept_id
 
 
-def add_main_department(facility_id: int, label: str, code: str):
-    """Child of a Facility. `code` is short, user-chosen, uppercased (e.g. 'AB')
-    and becomes the seed for every code auto-generated further down its subtree."""
+def add_main_department(label: str, code: str):
+    """Currently the ROOT of the tree (parent_id = NULL) -- Facility is not
+    in use yet. `code` is short, user-chosen, uppercased (e.g. 'AB') and
+    becomes the seed for every code auto-generated further down its subtree."""
     code = code.strip().upper()
     label = label.strip()
     if not code or not code.isalpha():
@@ -317,22 +338,15 @@ def add_main_department(facility_id: int, label: str, code: str):
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT path_name FROM departments WHERE dept_id = %s AND level = 'Facility'", (facility_id,))
-    parent = cur.fetchone()
-    if parent is None:
-        cur.close()
-        conn.close()
-        return False, "Facility not found."
-
-    path_name = f"{parent['path_name']} > {label} ({code})"
+    path_name = f"{label} ({code})"
     try:
         cur.execute(
             """
             INSERT INTO departments (name, label, level, parent_id, main_dept_id, path_name)
-            VALUES (%s, %s, 'Main Department', %s, NULL, %s)
+            VALUES (%s, %s, 'Main Department', NULL, NULL, %s)
             RETURNING dept_id
             """,
-            (code, label, facility_id, path_name),
+            (code, label, path_name),
         )
         dept_id = cur.fetchone()["dept_id"]
         # self-reference: a Main Department is its own main_dept_id anchor
@@ -341,7 +355,7 @@ def add_main_department(facility_id: int, label: str, code: str):
         return True, dept_id
     except psycopg2.IntegrityError:
         conn.rollback()
-        return False, f"Department code '{code}' already exists under this facility."
+        return False, f"Department code '{code}' already exists."
     finally:
         cur.close()
         conn.close()
@@ -409,6 +423,8 @@ def add_child_department(parent_id: int, name: str):
 # DEPARTMENT HIERARCHY -- READ
 # ---------------------------------------------------------------------------
 def get_facilities():
+    """DORMANT for now -- returns [] until add_facility() is actually used
+    somewhere. Left in place for when the Facility layer comes back."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT dept_id, name, label, path_name FROM departments WHERE level = 'Facility' ORDER BY name")
@@ -418,16 +434,15 @@ def get_facilities():
     return [dict(r) for r in rows]
 
 
-def get_main_departments(facility_id=None):
+def get_main_departments():
+    """Main Department is the current root of the tree, so this is simply
+    every row at that level -- no facility filter needed for now."""
     conn = get_connection()
     cur = conn.cursor()
-    query = "SELECT dept_id, name, label, path_name, parent_id FROM departments WHERE level = 'Main Department'"
-    params = []
-    if facility_id:
-        query += " AND parent_id = %s"
-        params.append(facility_id)
-    query += " ORDER BY label"
-    cur.execute(query, params)
+    cur.execute(
+        "SELECT dept_id, name, label, path_name, parent_id FROM departments "
+        "WHERE level = 'Main Department' ORDER BY label"
+    )
     rows = cur.fetchall()
     cur.close()
     conn.close()

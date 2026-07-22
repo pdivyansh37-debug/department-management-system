@@ -3,8 +3,9 @@ app.py
 ------
 Streamlit frontend for the Corporate Department Management System.
 
-Phase 2 change: departments are now a 5-level tree
+Departments support a 5-level tree
     Facility -> Main Department -> Sub-Department -> Section/Line -> Workstation/Cell
+but Facility is dormant for now -- Main Department is the current root.
 Employees attach at the bottom (Workstation/Cell). Department heads still log
 in at the Main Department level, same as Phase 1. New "Manage Departments"
 page lets each head build out their own Sub-Department / Section / Workstation
@@ -42,12 +43,12 @@ from database import (
     approve_pending_employee,
     authenticate_user,
     change_password,
-    get_all_departments,
     get_all_skills,
     get_children,
     get_department,
     get_department_employees,
     get_dept_name,
+    get_main_departments,
     get_pending_employees,
     get_summary_stats,
     handle_webhook_employee,
@@ -91,9 +92,12 @@ def public_submission_page():
     This function is only reached because main() checks st.query_params
     BEFORE the login gate.
 
-    The Department dropdown lists Workstation/Cell leaves (full path shown,
-    e.g. "Plant 1 > Assembly (AS) > AS1 > AS1A > AS1A1") since that's the
-    only level an employee can actually be filed under.
+    The department picker is 4 SEPARATE cascading dropdowns -- Department
+    (Main Department) -> Sub-Department -> Section/Line -> Workstation/Cell
+    -- each one only offers children of whatever was picked above it. These
+    live OUTSIDE st.form on purpose: forms in Streamlit only re-run the
+    script on submit, but each dropdown here needs to immediately repopulate
+    the next one the moment a selection changes.
     """
     st.title("🏭 Employee Data Submission")
     st.caption(
@@ -102,24 +106,46 @@ def public_submission_page():
         "don't need an account to submit."
     )
 
-    dept_options = get_all_departments()  # leaf (Workstation/Cell) departments only
-    skill_names = [s["skill_name"] for s in get_all_skills()]
-
-    if not dept_options:
-        st.warning(
-            "No workstations have been set up yet — ask your department head "
-            "to build out the department structure (Manage Departments) before "
-            "submissions can be filed."
-        )
+    main_depts = get_main_departments()
+    if not main_depts:
+        st.warning("No departments have been set up yet — check back later.")
         return
 
-    dept_labels = {d["dept_name"]: d["dept_id"] for d in dept_options}
+    st.markdown("**Department**")
+    main_options = {f"{d['label']} ({d['name']})": d["dept_id"] for d in main_depts}
+    sel_main = st.selectbox("Department", list(main_options.keys()), key="pub_main_dept")
+    main_dept_id = main_options[sel_main]
+
+    sub_depts = get_children(main_dept_id)
+    if not sub_depts:
+        st.warning(f"'{sel_main}' has no Sub-Departments set up yet — check back later.")
+        return
+    sub_options = {d["name"]: d["dept_id"] for d in sub_depts}
+    sel_sub = st.selectbox("Sub-Department", list(sub_options.keys()), key="pub_sub_dept")
+    sub_dept_id = sub_options[sel_sub]
+
+    sections = get_children(sub_dept_id)
+    if not sections:
+        st.warning(f"'{sel_sub}' has no Sections/Lines set up yet — check back later.")
+        return
+    sec_options = {d["name"]: d["dept_id"] for d in sections}
+    sel_sec = st.selectbox("Section/Line", list(sec_options.keys()), key="pub_section")
+    section_id = sec_options[sel_sec]
+
+    workstations = get_children(section_id)
+    if not workstations:
+        st.warning(f"'{sel_sec}' has no Workstations/Cells set up yet — check back later.")
+        return
+    ws_options = {d["name"]: d["dept_id"] for d in workstations}
+    sel_ws = st.selectbox("Workstation/Cell", list(ws_options.keys()), key="pub_workstation")
+    leaf_dept_id = ws_options[sel_ws]
+
+    skill_names = [s["skill_name"] for s in get_all_skills()]
 
     with st.form("public_submit_form", clear_on_submit=True):
         emp_name = st.text_input("Full Name*")
         emp_no = st.text_input("Employee No.*", placeholder="e.g. E1001")
         phone_number = st.text_input("Phone Number*")
-        department_label = st.selectbox("Department (Workstation/Cell)*", list(dept_labels.keys()))
         skills = st.multiselect("Skills", skill_names)
         working_area = st.text_input("Working Area*")
         joining_date = st.date_input("Joining Date*", value=date.today())
@@ -130,8 +156,8 @@ def public_submission_page():
             st.error("Please fill in all required fields.")
         else:
             # handle_webhook_employee() resolves 'department' by exact leaf
-            # CODE, not the full path label -- so we look the code back up.
-            leaf_dept = get_department(dept_labels[department_label])
+            # CODE, not a display label -- so we look the code back up.
+            leaf_dept = get_department(leaf_dept_id)
             success, message = handle_webhook_employee({
                 "emp_name": emp_name.strip(),
                 "emp_no": emp_no.strip(),
@@ -536,7 +562,7 @@ def find_employee_page():
     st.caption(
         "Search across every department to quickly pull up one specific "
         "employee — by name, employee no., phone, working area, or any "
-        "level of the department hierarchy (facility, main department, "
+        "level of the department hierarchy (main department, "
         "sub-department, section, or workstation code)."
     )
 
