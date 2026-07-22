@@ -8,7 +8,9 @@ Phase 2 change: departments are now a 5-level tree
 Employees attach at the bottom (Workstation/Cell). Department heads still log
 in at the Main Department level, same as Phase 1. New "Manage Departments"
 page lets each head build out their own Sub-Department / Section / Workstation
-structure -- codes are auto-generated, so no two heads can ever collide.
+structure by typing a name at each level -- names only need to be unique
+among siblings under the same parent, so different branches of the tree can
+freely reuse names without colliding.
 
 Run with:
     streamlit run app.py
@@ -23,7 +25,8 @@ Mock login accounts (seeded automatically on first run):
     maintenance_head / maintenance123    -> Maintenance (MT)
 
 Each of these starts with ZERO Sub-Departments -- log in and use
-"Manage Departments" to build out AS1, AS1A, AS1A1, etc.
+"Manage Departments" to type in your own Sub-Department / Section /
+Workstation names.
 """
 
 import io
@@ -251,9 +254,10 @@ def manage_departments_page():
     st.header("🗂️ Manage Departments")
     st.caption(
         f"Build out the structure under **{st.session_state.dept_name}**: "
-        "Sub-Department → Section/Line → Workstation/Cell. Every code below "
-        "your Main Department is generated automatically the moment you "
-        "click Add — you never type a name, and nothing can collide."
+        "Sub-Department → Section/Line → Workstation/Cell. Type a name at "
+        "each level — names just need to be unique among siblings under "
+        "the same parent, so two different Sub-Departments elsewhere in "
+        "the tree can reuse a name without conflict."
     )
 
     main_dept_id = st.session_state.dept_id
@@ -269,8 +273,11 @@ def manage_departments_page():
         )
     else:
         st.caption("No Sub-Departments yet.")
-    if st.button("➕ Add Sub-Department", key="add_subdept"):
-        success, result = add_child_department(main_dept_id)
+    with st.form("add_subdept_form", clear_on_submit=True):
+        new_subdept_name = st.text_input("New Sub-Department name", key="new_subdept_name")
+        add_subdept_submitted = st.form_submit_button("➕ Add Sub-Department")
+    if add_subdept_submitted:
+        success, result = add_child_department(main_dept_id, new_subdept_name)
         if success:
             st.success(f"Added Sub-Department '{get_department(result)['name']}'.")
             st.rerun()
@@ -296,8 +303,11 @@ def manage_departments_page():
             )
         else:
             st.caption(f"No Sections/Lines under '{chosen_sub_name}' yet.")
-        if st.button(f"➕ Add Section/Line under '{chosen_sub_name}'", key="add_section"):
-            success, result = add_child_department(chosen_sub_id)
+        with st.form("add_section_form", clear_on_submit=True):
+            new_section_name = st.text_input(f"New Section/Line name (under '{chosen_sub_name}')", key="new_section_name")
+            add_section_submitted = st.form_submit_button("➕ Add Section/Line")
+        if add_section_submitted:
+            success, result = add_child_department(chosen_sub_id, new_section_name)
             if success:
                 st.success(f"Added Section/Line '{get_department(result)['name']}'.")
                 st.rerun()
@@ -329,8 +339,11 @@ def manage_departments_page():
                 )
             else:
                 st.caption(f"No Workstations/Cells under '{chosen_sec_name}' yet.")
-            if st.button(f"➕ Add Workstation/Cell under '{chosen_sec_name}'", key="add_workstation"):
-                success, result = add_child_department(chosen_sec_id)
+            with st.form("add_workstation_form", clear_on_submit=True):
+                new_ws_name = st.text_input(f"New Workstation/Cell name (under '{chosen_sec_name}')", key="new_ws_name")
+                add_ws_submitted = st.form_submit_button("➕ Add Workstation/Cell")
+            if add_ws_submitted:
+                success, result = add_child_department(chosen_sec_id, new_ws_name)
                 if success:
                     st.success(f"Added Workstation/Cell '{get_department(result)['name']}'.")
                     st.rerun()

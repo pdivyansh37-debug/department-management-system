@@ -19,13 +19,16 @@ at its parent). Two columns make queries fast without recursive CTEs:
                     the Find Employee page -- searching "AB1" finds every
                     employee anywhere under that sub-department.
 
-Naming rule (auto-generated, cascading from a Main Department's short code):
-  Main Department   : you supply the code, e.g. "AB"        (uppercased)
-  Sub-Department     : auto  AB1, AB2, AB3 ...                (number)
-  Section/Line       : auto  AB1A, AB1B, AB1C ...              (letter)
-  Workstation/Cell   : auto  AB1A1, AB1A2, AB1A3 ...           (number)
-Each parent tracks its own `child_counter`, so codes are guaranteed unique
-and no two people can accidentally create the same name.
+Naming rule:
+  Main Department    : you supply a short code, e.g. "AB"    (uppercased)
+  Sub-Department      : you type a free-text name
+  Section/Line        : you type a free-text name
+  Workstation/Cell    : you type a free-text name
+Below Main Department, names are fully free text -- the only rule is
+"not blank" and "unique among siblings under the same parent" (enforced by
+a UNIQUE(parent_id, name) constraint). Two different Sub-Departments in
+different branches of the tree can happily share a name; only siblings
+under the exact same parent can't collide.
 
 Employees attach ONLY at Workstation/Cell (the leaf level). Department heads
 (users) attach ONLY at Main Department level -- same as Phase 1.
@@ -68,15 +71,6 @@ def get_connection():
 
 def hash_password(raw_password: str) -> str:
     return hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
-
-
-def _letter_seq(n: int) -> str:
-    """1->A, 2->B, ..., 26->Z, 27->AA, 28->AB, ... (Excel-column style)."""
-    s = ""
-    while n > 0:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
-    return s
 
 
 # ---------------------------------------------------------------------------
@@ -353,10 +347,18 @@ def add_main_department(facility_id: int, label: str, code: str):
         conn.close()
 
 
-def add_child_department(parent_id: int):
-    """Auto-names and inserts the next Sub-Department / Section-Line /
-    Workstation-Cell under `parent_id`, based on the parent's level.
+def add_child_department(parent_id: int, name: str):
+    """Inserts a user-named Sub-Department / Section-Line / Workstation-Cell
+    under `parent_id`, at whatever level comes next after the parent's level.
+    `name` is free text -- the only rules are "not blank" and "unique among
+    siblings under this same parent" (enforced by the UNIQUE(parent_id, name)
+    constraint, so two different Sub-Departments elsewhere in the tree can
+    freely share a name -- only siblings can't collide).
     Returns (success, dept_id_or_message)."""
+    name = (name or "").strip()
+    if not name:
+        return False, "Name cannot be blank."
+
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT * FROM departments WHERE dept_id = %s", (parent_id,))
@@ -377,15 +379,6 @@ def add_child_department(parent_id: int):
         conn.close()
         return False, "Use add_main_department() for this level (it needs a user-chosen code)."
 
-    counter = parent["child_counter"] + 1
-    if child_level == "Sub-Department":
-        suffix = str(counter)
-    elif child_level == "Section/Line":
-        suffix = _letter_seq(counter)
-    else:  # Workstation/Cell
-        suffix = str(counter)
-
-    name = f"{parent['name']}{suffix}"
     path_name = f"{parent['path_name']} > {name}"
 
     try:
@@ -398,12 +391,15 @@ def add_child_department(parent_id: int):
             (name, name, child_level, parent_id, parent["main_dept_id"], path_name),
         )
         dept_id = cur.fetchone()["dept_id"]
-        cur.execute("UPDATE departments SET child_counter = %s WHERE dept_id = %s", (counter, parent_id))
+        cur.execute(
+            "UPDATE departments SET child_counter = child_counter + 1 WHERE dept_id = %s",
+            (parent_id,),
+        )
         conn.commit()
         return True, dept_id
     except psycopg2.IntegrityError:
         conn.rollback()
-        return False, f"'{name}' already exists (try again)."
+        return False, f"'{name}' already exists under '{parent['name']}' -- pick a different name."
     finally:
         cur.close()
         conn.close()
