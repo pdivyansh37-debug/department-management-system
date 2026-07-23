@@ -291,13 +291,7 @@ def manage_departments_page():
     # ---- Level: Sub-Departments (direct children of this head's Main Dept)
     st.subheader("1️⃣ Sub-Departments")
     sub_depts = get_children(main_dept_id)
-    if sub_depts:
-        st.dataframe(
-            pd.DataFrame(sub_depts)[["name", "path_name"]]
-            .rename(columns={"name": "Code", "path_name": "Full Path"}),
-            hide_index=True, width="stretch",
-        )
-    else:
+    if not sub_depts:
         st.caption("No Sub-Departments yet.")
     with st.form("add_subdept_form", clear_on_submit=True):
         new_subdept_name = st.text_input("New Sub-Department name", key="new_subdept_name")
@@ -321,13 +315,7 @@ def manage_departments_page():
         chosen_sub_name = st.selectbox("Under which Sub-Department?", list(sub_options.keys()), key="sec_parent_pick")
         chosen_sub_id = sub_options[chosen_sub_name]
         sections = get_children(chosen_sub_id)
-        if sections:
-            st.dataframe(
-                pd.DataFrame(sections)[["name", "path_name"]]
-                .rename(columns={"name": "Code", "path_name": "Full Path"}),
-                hide_index=True, width="stretch",
-            )
-        else:
+        if not sections:
             st.caption(f"No Sections/Lines under '{chosen_sub_name}' yet.")
         with st.form("add_section_form", clear_on_submit=True):
             new_section_name = st.text_input(f"New Section/Line name (under '{chosen_sub_name}')", key="new_section_name")
@@ -357,13 +345,7 @@ def manage_departments_page():
             chosen_sec_name = st.selectbox("Under which Section/Line?", list(sec_options.keys()), key="ws_parent_pick")
             chosen_sec_id = sec_options[chosen_sec_name]
             workstations = get_children(chosen_sec_id)
-            if workstations:
-                st.dataframe(
-                    pd.DataFrame(workstations)[["name", "path_name"]]
-                    .rename(columns={"name": "Code", "path_name": "Full Path"}),
-                    hide_index=True, width="stretch",
-                )
-            else:
+            if not workstations:
                 st.caption(f"No Workstations/Cells under '{chosen_sec_name}' yet.")
             with st.form("add_workstation_form", clear_on_submit=True):
                 new_ws_name = st.text_input(f"New Workstation/Cell name (under '{chosen_sec_name}')", key="new_ws_name")
