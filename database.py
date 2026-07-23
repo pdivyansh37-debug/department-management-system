@@ -728,6 +728,33 @@ def get_summary_stats():
     return {"total": total, "working": working, "not_working": not_working, "departments": departments}
 
 
+def get_department_breakdown():
+    """Employee counts per Main Department -- everyone anywhere under that
+    department's subtree (any Workstation/Cell whose main_dept_id matches),
+    not just direct children. Powers the department grid on the Dashboard."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT md.dept_id, md.label, md.name AS code,
+               COUNT(e.emp_no) AS total,
+               COUNT(*) FILTER (WHERE e.status = 'Working') AS working,
+               COUNT(*) FILTER (WHERE e.status = 'Not Working') AS not_working
+        FROM departments md
+        LEFT JOIN employees e ON e.dept_id IN (
+            SELECT dept_id FROM departments WHERE main_dept_id = md.dept_id
+        )
+        WHERE md.level = 'Main Department'
+        GROUP BY md.dept_id, md.label, md.name
+        ORDER BY md.label
+        """
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # EMPLOYEES -- SEARCH & SORT (global, for the "Find Employee" tab)
 # ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@ from database import (
     get_all_skills,
     get_children,
     get_department,
+    get_department_breakdown,
     get_department_employees,
     get_dept_name,
     get_main_departments,
@@ -534,6 +535,59 @@ def dashboard_page():
 
     # No dept_id restriction here -- read access is intentionally global.
     render_kpi_cards(get_summary_stats())
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.subheader("Department Breakdown")
+
+    breakdown = get_department_breakdown()
+    if not breakdown:
+        st.caption("No departments yet.")
+        return
+
+    # A small rotating accent palette -- purely visual, not semantic, so the
+    # grid doesn't read as a flat wall of identical white boxes.
+    accents = ["#0F6E56", "#993C1D", "#185FA5", "#712B13", "#534AB7", "#993556", "#3B6D11"]
+
+    cards_per_row = 3
+    for row_start in range(0, len(breakdown), cards_per_row):
+        row = breakdown[row_start:row_start + cards_per_row]
+        cols = st.columns(cards_per_row)
+        for col, dept, accent in zip(cols, row, accents[row_start:row_start + cards_per_row]):
+            total = dept["total"] or 0
+            working = dept["working"] or 0
+            not_working = dept["not_working"] or 0
+            working_pct = round((working / total) * 100) if total else 0
+
+            with col:
+                st.markdown(
+                    f"""
+                    <div style="border:1px solid rgba(128,128,128,0.25); border-radius:10px;
+                                overflow:hidden; margin-bottom:16px;">
+                        <div style="height:4px; background:{accent};"></div>
+                        <div style="padding:16px 18px;">
+                            <div style="font-size:12px; font-weight:600; letter-spacing:0.04em;
+                                        text-transform:uppercase; opacity:0.75;">
+                                {dept['label']} <span style="opacity:0.6;">({dept['code']})</span>
+                            </div>
+                            <div style="font-size:30px; font-weight:700; margin-top:6px;">
+                                {total}
+                                <span style="font-size:13px; font-weight:400; opacity:0.6;">
+                                    {"employee" if total == 1 else "employees"}
+                                </span>
+                            </div>
+                            <div style="display:flex; gap:16px; margin-top:10px; font-size:13px; opacity:0.85;">
+                                <span>✅ {working} Working</span>
+                                <span>⛔ {not_working} Not Working</span>
+                            </div>
+                            <div style="margin-top:12px; height:6px; border-radius:3px;
+                                        background:rgba(128,128,128,0.2); overflow:hidden;">
+                                <div style="width:{working_pct}%; height:100%; background:{accent};"></div>
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
 
 # ---------------------------------------------------------------------------
