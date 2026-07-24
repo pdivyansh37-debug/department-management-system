@@ -750,8 +750,8 @@ def get_sub_department_breakdown(main_dept_id):
                COUNT(*) FILTER (WHERE e.status = 'Working') AS working,
                COUNT(*) FILTER (WHERE e.status = 'Not Working') AS not_working
         FROM departments sd
-        LEFT JOIN descendants desc ON desc.root_id = sd.dept_id
-        LEFT JOIN employees e ON e.dept_id = desc.desc_id
+        LEFT JOIN descendants dsc ON dsc.root_id = sd.dept_id
+        LEFT JOIN employees e ON e.dept_id = dsc.desc_id
         WHERE sd.parent_id = %s
         GROUP BY sd.dept_id, sd.name
         ORDER BY sd.name
