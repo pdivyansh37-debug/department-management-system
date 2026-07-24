@@ -728,26 +728,35 @@ def get_summary_stats():
     return {"total": total, "working": working, "not_working": not_working, "departments": departments}
 
 
-def get_department_breakdown():
-    """Employee counts per Main Department -- everyone anywhere under that
-    department's subtree (any Workstation/Cell whose main_dept_id matches),
-    not just direct children. Powers the department grid on the Dashboard."""
+def get_sub_department_breakdown(main_dept_id):
+    """Employee counts per Sub-Department, scoped to ONE Head's own Main
+    Department -- everyone anywhere under each Sub-Department (through its
+    Sections/Lines and Workstations/Cells), not just direct children.
+    Powers the department grid on the Dashboard, shown after login."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT md.dept_id, md.label, md.name AS code,
+        WITH RECURSIVE descendants AS (
+            SELECT dept_id AS root_id, dept_id AS desc_id
+            FROM departments WHERE parent_id = %s
+            UNION ALL
+            SELECT d.root_id, c.dept_id
+            FROM descendants d
+            JOIN departments c ON c.parent_id = d.desc_id
+        )
+        SELECT sd.dept_id, sd.name,
                COUNT(e.emp_no) AS total,
                COUNT(*) FILTER (WHERE e.status = 'Working') AS working,
                COUNT(*) FILTER (WHERE e.status = 'Not Working') AS not_working
-        FROM departments md
-        LEFT JOIN employees e ON e.dept_id IN (
-            SELECT dept_id FROM departments WHERE main_dept_id = md.dept_id
-        )
-        WHERE md.level = 'Main Department'
-        GROUP BY md.dept_id, md.label, md.name
-        ORDER BY md.label
-        """
+        FROM departments sd
+        LEFT JOIN descendants desc ON desc.root_id = sd.dept_id
+        LEFT JOIN employees e ON e.dept_id = desc.desc_id
+        WHERE sd.parent_id = %s
+        GROUP BY sd.dept_id, sd.name
+        ORDER BY sd.name
+        """,
+        (main_dept_id, main_dept_id),
     )
     rows = cur.fetchall()
     cur.close()

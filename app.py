@@ -46,12 +46,12 @@ from database import (
     get_all_skills,
     get_children,
     get_department,
-    get_department_breakdown,
     get_department_employees,
     get_dept_name,
     get_main_departments,
     get_pending_employees,
     get_summary_stats,
+    get_sub_department_breakdown,
     handle_webhook_employee,
     init_db,
     reject_pending_employee,
@@ -529,19 +529,23 @@ def add_employee_page():
 def dashboard_page():
     st.header("📊 Global Employee Dashboard")
     st.caption(
-        "A quick company-wide headcount summary, across every department. "
-        "Use Find Employee to look up or filter individual records."
+        "Company-wide headcount summary up top, and a breakdown of your own "
+        "department's Sub-Departments below. Use Find Employee to look up "
+        "or filter individual records anywhere in the company."
     )
 
     # No dept_id restriction here -- read access is intentionally global.
     render_kpi_cards(get_summary_stats())
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    st.subheader("Department Breakdown")
+    st.subheader(f"Sub-Departments in {st.session_state.dept_name}")
 
-    breakdown = get_department_breakdown()
+    breakdown = get_sub_department_breakdown(st.session_state.dept_id)
     if not breakdown:
-        st.caption("No departments yet.")
+        st.caption(
+            "No Sub-Departments yet — build them out on the Manage "
+            "Departments page."
+        )
         return
 
     # A small rotating accent palette -- purely visual, not semantic, so the
@@ -552,7 +556,8 @@ def dashboard_page():
     for row_start in range(0, len(breakdown), cards_per_row):
         row = breakdown[row_start:row_start + cards_per_row]
         cols = st.columns(cards_per_row)
-        for col, dept, accent in zip(cols, row, accents[row_start:row_start + cards_per_row]):
+        for i, (col, dept) in enumerate(zip(cols, row)):
+            accent = accents[(row_start + i) % len(accents)]
             total = dept["total"] or 0
             working = dept["working"] or 0
             not_working = dept["not_working"] or 0
@@ -567,7 +572,7 @@ def dashboard_page():
                         <div style="padding:16px 18px;">
                             <div style="font-size:12px; font-weight:600; letter-spacing:0.04em;
                                         text-transform:uppercase; opacity:0.75;">
-                                {dept['label']} <span style="opacity:0.6;">({dept['code']})</span>
+                                {dept['name']}
                             </div>
                             <div style="font-size:30px; font-weight:700; margin-top:6px;">
                                 {total}
